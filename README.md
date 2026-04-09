@@ -11,7 +11,7 @@ Uses OpenAI → generate explanation
 Response sent back → UI displays
 
 Running the application:
-Frontend:
+Frontend (Streamlit):
 
 1. cd frontend
 2. Activate the venv: source venv/bin/activate
@@ -19,7 +19,7 @@ Frontend:
 4. streamlit run app.py
 5. App should be running at http://localhost:8501/
 
-Backend:
+Backend (Flask):
 
 1. cd backend
 2. python3 -m venv venv
