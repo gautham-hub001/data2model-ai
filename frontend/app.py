@@ -17,12 +17,19 @@ if uploaded_file:
         response = requests.post("https://data2model-ai.onrender.com/analyze", files=files)
 
         st.write("Status Code:", response.status_code)
-        st.write("Raw Response:", response.text)
 
         if response.status_code != 200:
             st.error("Backend failed")
+            with st.expander("🔍 View Raw Error"):
+                st.text(response.text)
         else:
             data = response.json()
+            st.success("✅ Analysis Complete")
+
+            # Optional debug section
+            with st.expander("🔍 View Raw Response (Debug)"):
+                st.json(data)
+        
         st.subheader("📊 Analysis")
         st.json(data["analysis"])
 
