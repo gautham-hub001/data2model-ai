@@ -14,7 +14,7 @@ if uploaded_file:
                 "text/csv"
             )
         }
-        response = requests.post("http://localhost:5001/analyze", files=files)
+        response = requests.post("https://data2model-ai.onrender.com:5001/analyze", files=files)
 
         st.write("Status Code:", response.status_code)
         st.write("Raw Response:", response.text)
