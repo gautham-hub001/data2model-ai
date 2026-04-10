@@ -15,7 +15,7 @@ if uploaded_file:
             )
         }
         response = requests.post("https://data2model-ai.onrender.com/analyze", files=files)
-        #response = requests.post("https://localhost:5001/analyze", files=files) # For local testing
+        #response = requests.post("http://localhost:5001/analyze", files=files) # For local testing
 
 
         st.write("Status Code:", response.status_code)
