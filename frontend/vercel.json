@@ -3,6 +3,6 @@
   "outputDirectory": ".next",
   "framework": "nextjs",
   "rewrites": [
-    { "source": "/api/:path*", "destination": "https://api.data2model.ai/:path*" }
+    { "source": "/api/:path*", "destination": "https://data2model-ai-java.onrender.com/api/:path*" }
   ]
 }
