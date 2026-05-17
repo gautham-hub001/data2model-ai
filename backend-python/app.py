@@ -1,12 +1,12 @@
 import os
 import io
-import json
 import uuid
 import functools
 
 from flask import Flask, request, jsonify
 import pandas as pd
 from flask_cors import CORS
+from supabase import create_client, Client
 
 from analyzer import analyze_dataset, clean_dataset
 from recommender import recommend_ml_task
@@ -16,10 +16,11 @@ app = Flask(__name__)
 CORS(app)
 
 INTERNAL_TOKEN = os.environ.get("INTERNAL_TOKEN", "")
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
+STORAGE_BUCKET = "datasets"
 
-# In-memory dataset store: {dataset_id: bytes}
-# For production swap this with Supabase Storage reads/writes.
-_dataset_store: dict[str, bytes] = {}
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
 def clean_for_json(obj):
@@ -33,13 +34,17 @@ def clean_for_json(obj):
 
 
 def require_internal_token(f):
-    """Reject calls that don't carry the shared secret from Spring Boot."""
     @functools.wraps(f)
     def wrapper(*args, **kwargs):
         if INTERNAL_TOKEN and request.headers.get("X-Internal-Token") != INTERNAL_TOKEN:
             return jsonify({"error": "Unauthorized"}), 401
         return f(*args, **kwargs)
     return wrapper
+
+
+def _fetch_dataset(dataset_id: str) -> bytes:
+    path = f"{dataset_id}.csv"
+    return supabase.storage.from_(STORAGE_BUCKET).download(path)
 
 
 def _run_analysis(df: pd.DataFrame, smote: bool) -> dict:
@@ -50,7 +55,6 @@ def _run_analysis(df: pd.DataFrame, smote: bool) -> dict:
         if target_col and target_col in df.columns:
             X = df.drop(columns=[target_col])
             y = df[target_col]
-            # Only apply SMOTE to numeric columns
             X_numeric = X.select_dtypes(include="number")
             sm = SMOTE(random_state=42)
             X_res, y_res = sm.fit_resample(X_numeric, y)
@@ -61,9 +65,8 @@ def _run_analysis(df: pd.DataFrame, smote: bool) -> dict:
     explanation = generate_explanation(analysis, recommendation)
     code = generate_code(list(df.columns), recommendation)
 
-    class_counts = None
-    target_col = recommendation.get("target_variable")
     imbalance_detected = False
+    target_col = recommendation.get("target_variable")
     if target_col and target_col in df.columns:
         class_counts = df[target_col].value_counts()
         if len(class_counts) >= 2:
@@ -80,7 +83,7 @@ def _run_analysis(df: pd.DataFrame, smote: bool) -> dict:
     }
 
 
-# ── Legacy endpoint (Streamlit / direct callers) ─────────────────────────────
+# ── Legacy endpoint ───────────────────────────────────────────────────────────
 
 @app.route("/analyze", methods=["POST"])
 def analyze():
@@ -92,16 +95,20 @@ def analyze():
         return jsonify({"error": str(e)}), 500
 
 
-# ── New endpoints called by Spring Boot via tool calls ────────────────────────
+# ── Endpoints called by Spring Boot ──────────────────────────────────────────
 
 @app.route("/store-dataset", methods=["POST"])
 @require_internal_token
 def store_dataset():
-    """Store uploaded CSV bytes and return a dataset_id."""
     try:
         file = request.files["file"]
         dataset_id = str(uuid.uuid4())
-        _dataset_store[dataset_id] = file.read()
+        csv_bytes = file.read()
+        supabase.storage.from_(STORAGE_BUCKET).upload(
+            path=f"{dataset_id}.csv",
+            file=csv_bytes,
+            file_options={"content-type": "text/csv"}
+        )
         return jsonify({"dataset_id": dataset_id})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -110,12 +117,9 @@ def store_dataset():
 @app.route("/analyze-by-id", methods=["POST"])
 @require_internal_token
 def analyze_by_id():
-    """Run analysis on a previously stored dataset."""
     try:
         dataset_id = request.json.get("dataset_id")
-        csv_bytes = _dataset_store.get(dataset_id)
-        if csv_bytes is None:
-            return jsonify({"error": "Dataset not found"}), 404
+        csv_bytes = _fetch_dataset(dataset_id)
         df = clean_dataset(pd.read_csv(io.BytesIO(csv_bytes)))
         return jsonify(clean_for_json(_run_analysis(df, smote=False)))
     except Exception as e:
@@ -125,12 +129,9 @@ def analyze_by_id():
 @app.route("/analyze-smote-by-id", methods=["POST"])
 @require_internal_token
 def analyze_smote_by_id():
-    """Re-run analysis with SMOTE oversampling on a previously stored dataset."""
     try:
         dataset_id = request.json.get("dataset_id")
-        csv_bytes = _dataset_store.get(dataset_id)
-        if csv_bytes is None:
-            return jsonify({"error": "Dataset not found"}), 404
+        csv_bytes = _fetch_dataset(dataset_id)
         df = clean_dataset(pd.read_csv(io.BytesIO(csv_bytes)))
         return jsonify(clean_for_json(_run_analysis(df, smote=True)))
     except Exception as e:
