@@ -17,7 +17,7 @@ CORS(app)
 
 INTERNAL_TOKEN = os.environ.get("INTERNAL_TOKEN", "")
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
-SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
+SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "").strip()
 STORAGE_BUCKET = "datasets"
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
