@@ -1,0 +1,31 @@
+services:
+  # ── Python ML Backend ──────────────────────────────────────────────────────
+  - type: web
+    name: data2model-python
+    runtime: python
+    rootDir: backend-python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 2
+    plan: free
+    envVars:
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: INTERNAL_TOKEN
+        sync: false
+
+  # ── Java Spring Boot Orchestration (Docker) ────────────────────────────────
+  - type: web
+    name: data2model-java
+    runtime: docker
+    rootDir: backend-java
+    dockerfilePath: ./Dockerfile
+    plan: free
+    envVars:
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: INTERNAL_TOKEN
+        sync: false
+      - key: CLERK_JWKS_URI
+        sync: false
+      - key: PYTHON_API_URL
+        sync: false

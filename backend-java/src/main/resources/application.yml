@@ -1,0 +1,36 @@
+server:
+  port: 8080
+
+spring:
+  ai:
+    openai:
+      # OpenRouter acts as an OpenAI-compatible endpoint
+      base-url: https://openrouter.ai/api/v1
+      api-key: ${OPENROUTER_API_KEY}
+      chat:
+        options:
+          model: meta-llama/llama-3-8b-instruct:free
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Clerk JWKS endpoint — replace <your-clerk-frontend-api> with your Clerk domain
+          jwk-set-uri: ${CLERK_JWKS_URI}
+
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+
+app:
+  python-api-url: ${PYTHON_API_URL:http://localhost:5001}
+  internal-token: ${INTERNAL_TOKEN}
+
+# Tune JVM for Render free tier (512MB RAM)
+# Set JAVA_OPTS=-Xmx350m -Xms256m in Render environment
+
+logging:
+  level:
+    com.data2model: DEBUG
+    org.springframework.ai: INFO
