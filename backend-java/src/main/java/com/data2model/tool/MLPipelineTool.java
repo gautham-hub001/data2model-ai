@@ -10,6 +10,8 @@ import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestTemplate;
 
+import java.util.Map;
+
 @Component
 public class MLPipelineTool {
 
@@ -42,7 +44,7 @@ public class MLPipelineTool {
         headers.set("X-Internal-Token", internalToken);
         headers.setContentType(MediaType.APPLICATION_JSON);
 
-        HttpEntity<String> request = new HttpEntity<>("{\"dataset_id\":\"" + datasetId + "\"}", headers);
+        HttpEntity<Map<String, String>> request = new HttpEntity<>(Map.of("dataset_id", datasetId), headers);
         ResponseEntity<AnalysisResult> response = restTemplate.exchange(
             pythonApiUrl + endpoint,
             HttpMethod.POST,
