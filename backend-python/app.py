@@ -2,11 +2,12 @@ import os
 import io
 import uuid
 import functools
+import re
 
+import requests as http
 from flask import Flask, request, jsonify
 import pandas as pd
 from flask_cors import CORS
-from supabase import create_client, Client
 
 from analyzer import analyze_dataset, clean_dataset
 from recommender import recommend_ml_task
@@ -16,11 +17,39 @@ app = Flask(__name__)
 CORS(app)
 
 INTERNAL_TOKEN = os.environ.get("INTERNAL_TOKEN", "")
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "").strip()
-SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "").strip()
+
+# Remove ALL whitespace (handles mid-key newlines, not just trailing ones)
+SUPABASE_URL = re.sub(r'\s+', '', os.environ.get("SUPABASE_URL", ""))
+SUPABASE_KEY = re.sub(r'\s+', '', os.environ.get("SUPABASE_SERVICE_KEY", ""))
 STORAGE_BUCKET = "datasets"
 
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+# Validate on startup so a bad env var fails loudly instead of at request time
+if not SUPABASE_URL.startswith("https://"):
+    raise RuntimeError(f"SUPABASE_URL looks wrong: {repr(SUPABASE_URL[:30])}")
+if not SUPABASE_KEY.startswith("eyJ"):
+    raise RuntimeError(f"SUPABASE_SERVICE_KEY looks wrong (should start with eyJ)")
+
+_STORAGE_HEADERS = {
+    "Authorization": f"Bearer {SUPABASE_KEY}",
+    "apikey": SUPABASE_KEY,
+}
+
+
+def _storage_url(path: str) -> str:
+    return f"{SUPABASE_URL}/storage/v1/object/{STORAGE_BUCKET}/{path}"
+
+
+def _upload_dataset(csv_bytes: bytes, dataset_id: str) -> None:
+    url = _storage_url(f"{dataset_id}.csv")
+    resp = http.post(url, data=csv_bytes, headers={**_STORAGE_HEADERS, "Content-Type": "text/csv"})
+    resp.raise_for_status()
+
+
+def _fetch_dataset(dataset_id: str) -> bytes:
+    url = _storage_url(f"{dataset_id}.csv")
+    resp = http.get(url, headers=_STORAGE_HEADERS)
+    resp.raise_for_status()
+    return resp.content
 
 
 def clean_for_json(obj):
@@ -40,11 +69,6 @@ def require_internal_token(f):
             return jsonify({"error": "Unauthorized"}), 401
         return f(*args, **kwargs)
     return wrapper
-
-
-def _fetch_dataset(dataset_id: str) -> bytes:
-    path = f"{dataset_id}.csv"
-    return supabase.storage.from_(STORAGE_BUCKET).download(path)
 
 
 def _run_analysis(df: pd.DataFrame, smote: bool) -> dict:
@@ -103,12 +127,7 @@ def store_dataset():
     try:
         file = request.files["file"]
         dataset_id = str(uuid.uuid4())
-        csv_bytes = file.read()
-        supabase.storage.from_(STORAGE_BUCKET).upload(
-            path=f"{dataset_id}.csv",
-            file=csv_bytes,
-            file_options={"content-type": "text/csv"}
-        )
+        _upload_dataset(file.read(), dataset_id)
         return jsonify({"dataset_id": dataset_id})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
