@@ -16,7 +16,7 @@ app = Flask(__name__)
 CORS(app)
 
 INTERNAL_TOKEN = os.environ.get("INTERNAL_TOKEN", "")
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "").strip()
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "").strip()
 STORAGE_BUCKET = "datasets"
 
