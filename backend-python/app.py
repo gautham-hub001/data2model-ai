@@ -137,7 +137,7 @@ def store_dataset():
 @require_internal_token
 def analyze_by_id():
     try:
-        dataset_id = request.json.get("dataset_id")
+        dataset_id = (request.json.get("dataset_id") or "").strip()
         csv_bytes = _fetch_dataset(dataset_id)
         df = clean_dataset(pd.read_csv(io.BytesIO(csv_bytes)))
         return jsonify(clean_for_json(_run_analysis(df, smote=False)))
@@ -149,7 +149,7 @@ def analyze_by_id():
 @require_internal_token
 def analyze_smote_by_id():
     try:
-        dataset_id = request.json.get("dataset_id")
+        dataset_id = (request.json.get("dataset_id") or "").strip()
         csv_bytes = _fetch_dataset(dataset_id)
         df = clean_dataset(pd.read_csv(io.BytesIO(csv_bytes)))
         return jsonify(clean_for_json(_run_analysis(df, smote=True)))
