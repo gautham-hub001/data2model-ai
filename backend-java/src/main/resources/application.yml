@@ -9,7 +9,8 @@ spring:
       api-key: ${OPENROUTER_API_KEY}
       chat:
         options:
-          model: meta-llama/llama-3-8b-instruct:free
+          model: meta-llama/llama-3.1-8b-instruct:free
+        completions-path: /v1/chat/completions
 
   security:
     oauth2:
