@@ -12,9 +12,7 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
 import reactor.core.publisher.Flux;
-import reactor.util.retry.Retry;
 
-import java.time.Duration;
 import java.util.function.Supplier;
 import java.util.Map;
 import java.util.UUID;
@@ -196,29 +194,45 @@ public class MultiAgentService {
     }
 
     /**
-     * Retries a streaming LLM call up to 3 times with exponential backoff on 429.
-     * Accepts a Supplier so each retry builds a fresh HTTP request (avoids re-subscribing
-     * to an already-consumed Flux).
+     * Streams an LLM response with manual retry on 429.
+     *
+     * Spring AI's MessageAggregator catches 429s internally before Reactor's
+     * retryWhen can see them, so we use a plain try-catch loop instead.
+     * Each retry calls the supplier to create a brand-new HTTP request.
      */
     private String streamWithRetry(String sessionId, Supplier<Flux<String>> streamSupplier) {
-        StringBuilder sb = new StringBuilder();
-        Flux.defer(streamSupplier)
-            .retryWhen(Retry.backoff(3, Duration.ofSeconds(15))
-                .filter(ex -> ex.getMessage() != null && ex.getMessage().contains("429"))
-                .doBeforeRetry(signal -> {
-                    sb.setLength(0);
-                    long waitSecs = 15 * (long) Math.pow(2, signal.totalRetries());
-                    log.warn("OpenRouter 429 on session {}, retry {} — waiting {}s", sessionId,
-                        signal.totalRetries() + 1, waitSecs);
-                    emit(sessionId, StreamChunk.token(
-                        "\n⏳ Rate limited by OpenRouter, retrying in " + waitSecs + "s…\n"));
-                })
-            )
-            .doOnNext(token -> {
-                sb.append(token);
-                emit(sessionId, StreamChunk.token(token));
-            })
-            .blockLast();
-        return sb.toString();
+        // Backoff delays: 30s → 60s → 120s
+        long[] backoffMs = {30_000, 60_000, 120_000};
+
+        Exception lastEx = null;
+        for (int attempt = 0; attempt <= backoffMs.length; attempt++) {
+            StringBuilder sb = new StringBuilder();
+            try {
+                streamSupplier.get()
+                    .doOnNext(token -> {
+                        sb.append(token);
+                        emit(sessionId, StreamChunk.token(token));
+                    })
+                    .blockLast();
+                return sb.toString(); // success
+            } catch (Exception e) {
+                lastEx = e;
+                boolean is429 = e.getMessage() != null && e.getMessage().contains("429");
+                if (!is429 || attempt >= backoffMs.length) break;
+
+                long waitMs = backoffMs[attempt];
+                log.warn("OpenRouter 429 on session {}, attempt {}/{}, waiting {}s",
+                    sessionId, attempt + 1, backoffMs.length, waitMs / 1000);
+                emit(sessionId, StreamChunk.token(
+                    "\n⏳ Rate limited by OpenRouter. Retrying in " + (waitMs / 1000) + "s…\n"));
+                try {
+                    Thread.sleep(waitMs);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }
+        throw new RuntimeException("LLM call failed after retries: " + lastEx.getMessage(), lastEx);
     }
 }
