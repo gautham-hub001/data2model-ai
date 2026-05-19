@@ -1,6 +1,6 @@
 import { Client, IMessage } from "@stomp/stompjs";
 
-const WS_URL = process.env.NEXT_PUBLIC_JAVA_WS_URL ?? "ws://localhost:8080/ws";
+const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:8080/ws";
 
 export type StreamChunk = {
   type: "token" | "step" | "done" | "error";

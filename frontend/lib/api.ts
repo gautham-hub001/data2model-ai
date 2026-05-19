@@ -1,4 +1,6 @@
-const API_URL = process.env.NEXT_PUBLIC_JAVA_API_URL ?? "http://localhost:8080";
+// In production (Vercel): use empty string so calls go to /api/* which vercel.json rewrites to Java.
+// In local dev: set NEXT_PUBLIC_API_URL=http://localhost:8080
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 export type AnalysisSession = {
   sessionId: string;

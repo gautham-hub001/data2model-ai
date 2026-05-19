@@ -32,9 +32,16 @@ export default function StreamingOutput({ sessionId, token }: StreamingOutputPro
   const [awaitingSmote, setAwaitingSmote] = useState(false);
   const clientRef = useRef<ReturnType<typeof createSessionClient> | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  // Ref so the STOMP subscription always calls the latest handleChunk (fixes stale closure)
+  const handleChunkRef = useRef<(chunk: StreamChunk) => void>(() => {});
+  // Ref so token handler always sees the latest currentStep without re-creating the subscription
+  const currentStepRef = useRef<string | null>(null);
 
   useEffect(() => {
-    clientRef.current = createSessionClient(sessionId, handleChunk);
+    clientRef.current = createSessionClient(
+      sessionId,
+      (chunk) => handleChunkRef.current(chunk)
+    );
     return () => { clientRef.current?.deactivate(); };
   }, [sessionId]);
 
@@ -42,22 +49,28 @@ export default function StreamingOutput({ sessionId, token }: StreamingOutputPro
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [steps, currentStep]);
 
+  // Keep the ref pointing at the latest version of handleChunk on every render
+  handleChunkRef.current = handleChunk;
+
   function handleChunk(chunk: StreamChunk) {
     if (chunk.type === "step" && chunk.step) {
+      currentStepRef.current = chunk.step;
       setCurrentStep(chunk.step);
       setSteps((prev) => ({
         ...prev,
         [chunk.step!]: { name: chunk.step!, label: STEP_LABELS[chunk.step!] ?? chunk.step!, content: "", done: false },
       }));
       if (chunk.step === "CLARIFICATION") setAwaitingSmote(true);
-    } else if (chunk.type === "token" && currentStep) {
+    } else if (chunk.type === "token" && currentStepRef.current) {
+      const step = currentStepRef.current;
       setSteps((prev) => ({
         ...prev,
-        [currentStep]: { ...prev[currentStep], content: (prev[currentStep]?.content ?? "") + chunk.content },
+        [step]: { ...prev[step], content: (prev[step]?.content ?? "") + chunk.content },
       }));
     } else if (chunk.type === "done") {
-      if (currentStep) {
-        setSteps((prev) => ({ ...prev, [currentStep]: { ...prev[currentStep], done: true } }));
+      const step = currentStepRef.current;
+      if (step) {
+        setSteps((prev) => ({ ...prev, [step]: { ...prev[step], done: true } }));
       }
       setDone(true);
     } else if (chunk.type === "error") {
