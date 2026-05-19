@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 
 import reactor.core.publisher.Flux;
 
+import java.time.Duration;
 import java.util.function.Supplier;
 import java.util.Map;
 import java.util.UUID;
@@ -209,9 +210,13 @@ public class MultiAgentService {
             StringBuilder sb = new StringBuilder();
             try {
                 streamSupplier.get()
-                    .doOnNext(token -> {
-                        sb.append(token);
-                        emit(sessionId, StreamChunk.token(token));
+                    // Batch up to 20 tokens OR flush every 100 ms — whichever comes first.
+                    // Cuts WebSocket messages from ~400 down to ~20-30 per LLM response.
+                    .bufferTimeout(20, Duration.ofMillis(100))
+                    .doOnNext(batch -> {
+                        String chunk = String.join("", batch);
+                        sb.append(chunk);
+                        emit(sessionId, StreamChunk.token(chunk));
                     })
                     .blockLast();
                 return sb.toString(); // success
