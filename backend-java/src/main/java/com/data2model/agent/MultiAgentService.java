@@ -100,6 +100,9 @@ public class MultiAgentService {
                 }
             }
 
+            // Pause between LLM calls to stay within OpenRouter free-tier rate limit (~20 RPM)
+            Thread.sleep(5_000);
+
             // Step 4: Code Generation (streamed token by token)
             emit(sessionId, StreamChunk.stepStart("CODE_GENERATION"));
             String code = runCodeGenerationStep(sessionId, analysis, recommendation);
