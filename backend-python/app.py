@@ -11,7 +11,6 @@ from flask_cors import CORS
 
 from analyzer import analyze_dataset, clean_dataset
 from recommender import recommend_ml_task
-from llm import generate_explanation, generate_code
 
 app = Flask(__name__)
 CORS(app)
@@ -86,9 +85,8 @@ def _run_analysis(df: pd.DataFrame, smote: bool) -> dict:
 
     analysis = analyze_dataset(df)
     recommendation = recommend_ml_task(df)
-    explanation = generate_explanation(analysis, recommendation)
-    code = generate_code(list(df.columns), recommendation)
 
+    # Imbalance detection — Java's multi-agent workflow handles explanation + code generation
     imbalance_detected = False
     target_col = recommendation.get("target_variable")
     if target_col and target_col in df.columns:
@@ -100,8 +98,6 @@ def _run_analysis(df: pd.DataFrame, smote: bool) -> dict:
     return {
         "analysis": analysis,
         "recommendation": recommendation,
-        "explanation": explanation,
-        "code": code,
         "imbalanceDetected": imbalance_detected,
         "smoteApplied": smote,
     }
