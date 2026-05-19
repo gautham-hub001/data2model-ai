@@ -4,13 +4,12 @@ server:
 spring:
   ai:
     openai:
-      # OpenRouter acts as an OpenAI-compatible endpoint
-      base-url: https://openrouter.ai/api
-      api-key: ${OPENROUTER_API_KEY}
+      # Groq — OpenAI-compatible, free tier: 14,400 req/day, 30 RPM, no credit card needed
+      base-url: https://api.groq.com/openai
+      api-key: ${GROQ_API_KEY}
       chat:
         options:
-          model: meta-llama/llama-3.3-70b-instruct:free
-        completions-path: /v1/chat/completions
+          model: llama-3.3-70b-versatile
 
   security:
     oauth2:
