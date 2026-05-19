@@ -11,6 +11,10 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
+import reactor.core.publisher.Flux;
+import reactor.util.retry.Retry;
+
+import java.time.Duration;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -128,9 +132,7 @@ public class MultiAgentService {
     }
 
     private String runRecommendationStep(String sessionId, AnalysisResult analysis) {
-        StringBuilder sb = new StringBuilder();
-
-        chatClient.prompt()
+        Flux<String> stream = chatClient.prompt()
             .user(u -> u.text("""
                 You are an expert ML engineer. Given the following dataset analysis, recommend the best ML model.
                 Explain your reasoning in 2-3 sentences. Be specific about WHY this model fits this data.
@@ -144,20 +146,13 @@ public class MultiAgentService {
                 .param("recommendation", analysis.recommendation().toString())
             )
             .stream()
-            .content()
-            .doOnNext(token -> {
-                sb.append(token);
-                emit(sessionId, StreamChunk.token(token));
-            })
-            .blockLast();
+            .content();
 
-        return sb.toString();
+        return streamWithRetry(sessionId, stream);
     }
 
     private String runCodeGenerationStep(String sessionId, AnalysisResult analysis, String recommendation) {
-        StringBuilder sb = new StringBuilder();
-
-        chatClient.prompt()
+        Flux<String> stream = chatClient.prompt()
             .user(u -> u.text("""
                 Generate production-ready scikit-learn Python code for the following ML pipeline.
                 Include preprocessing, train/test split, model training, and evaluation metrics.
@@ -176,14 +171,9 @@ public class MultiAgentService {
                 .param("smote", String.valueOf(analysis.smoteApplied()))
             )
             .stream()
-            .content()
-            .doOnNext(token -> {
-                sb.append(token);
-                emit(sessionId, StreamChunk.token(token));
-            })
-            .blockLast();
+            .content();
 
-        return sb.toString();
+        return streamWithRetry(sessionId, stream);
     }
 
     /** Blocks until the user responds to the SMOTE clarification (max 5 minutes). */
@@ -198,5 +188,25 @@ public class MultiAgentService {
 
     private void emit(String sessionId, StreamChunk chunk) {
         ws.convertAndSend("/topic/session/" + sessionId + "/stream", chunk);
+    }
+
+    /** Retries a streaming LLM call up to 3 times with exponential backoff on 429. */
+    private String streamWithRetry(String sessionId, Flux<String> stream) {
+        StringBuilder sb = new StringBuilder();
+        stream
+            .retryWhen(Retry.backoff(3, Duration.ofSeconds(10))
+                .filter(ex -> ex.getMessage() != null && ex.getMessage().contains("429"))
+                .doBeforeRetry(signal -> {
+                    sb.setLength(0);
+                    emit(sessionId, StreamChunk.token("\n⏳ Rate limited, retrying in " +
+                        (10 * (signal.totalRetries() + 1)) + "s…\n"));
+                })
+            )
+            .doOnNext(token -> {
+                sb.append(token);
+                emit(sessionId, StreamChunk.token(token));
+            })
+            .blockLast();
+        return sb.toString();
     }
 }
