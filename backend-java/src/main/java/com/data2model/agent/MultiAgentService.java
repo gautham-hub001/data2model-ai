@@ -15,6 +15,7 @@ import reactor.core.publisher.Flux;
 import reactor.util.retry.Retry;
 
 import java.time.Duration;
+import java.util.function.Supplier;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -132,7 +133,8 @@ public class MultiAgentService {
     }
 
     private String runRecommendationStep(String sessionId, AnalysisResult analysis) {
-        Flux<String> stream = chatClient.prompt()
+        // Supplier ensures each retry attempt builds a brand-new HTTP request
+        Supplier<Flux<String>> streamSupplier = () -> chatClient.prompt()
             .user(u -> u.text("""
                 You are an expert ML engineer. Given the following dataset analysis, recommend the best ML model.
                 Explain your reasoning in 2-3 sentences. Be specific about WHY this model fits this data.
@@ -148,11 +150,11 @@ public class MultiAgentService {
             .stream()
             .content();
 
-        return streamWithRetry(sessionId, stream);
+        return streamWithRetry(sessionId, streamSupplier);
     }
 
     private String runCodeGenerationStep(String sessionId, AnalysisResult analysis, String recommendation) {
-        Flux<String> stream = chatClient.prompt()
+        Supplier<Flux<String>> streamSupplier = () -> chatClient.prompt()
             .user(u -> u.text("""
                 Generate production-ready scikit-learn Python code for the following ML pipeline.
                 Include preprocessing, train/test split, model training, and evaluation metrics.
@@ -173,7 +175,7 @@ public class MultiAgentService {
             .stream()
             .content();
 
-        return streamWithRetry(sessionId, stream);
+        return streamWithRetry(sessionId, streamSupplier);
     }
 
     /** Blocks until the user responds to the SMOTE clarification (max 5 minutes). */
@@ -190,16 +192,23 @@ public class MultiAgentService {
         ws.convertAndSend("/topic/session/" + sessionId + "/stream", chunk);
     }
 
-    /** Retries a streaming LLM call up to 3 times with exponential backoff on 429. */
-    private String streamWithRetry(String sessionId, Flux<String> stream) {
+    /**
+     * Retries a streaming LLM call up to 3 times with exponential backoff on 429.
+     * Accepts a Supplier so each retry builds a fresh HTTP request (avoids re-subscribing
+     * to an already-consumed Flux).
+     */
+    private String streamWithRetry(String sessionId, Supplier<Flux<String>> streamSupplier) {
         StringBuilder sb = new StringBuilder();
-        stream
-            .retryWhen(Retry.backoff(3, Duration.ofSeconds(10))
+        Flux.defer(streamSupplier)
+            .retryWhen(Retry.backoff(3, Duration.ofSeconds(15))
                 .filter(ex -> ex.getMessage() != null && ex.getMessage().contains("429"))
                 .doBeforeRetry(signal -> {
                     sb.setLength(0);
-                    emit(sessionId, StreamChunk.token("\n⏳ Rate limited, retrying in " +
-                        (10 * (signal.totalRetries() + 1)) + "s…\n"));
+                    long waitSecs = 15 * (long) Math.pow(2, signal.totalRetries());
+                    log.warn("OpenRouter 429 on session {}, retry {} — waiting {}s", sessionId,
+                        signal.totalRetries() + 1, waitSecs);
+                    emit(sessionId, StreamChunk.token(
+                        "\n⏳ Rate limited by OpenRouter, retrying in " + waitSecs + "s…\n"));
                 })
             )
             .doOnNext(token -> {
