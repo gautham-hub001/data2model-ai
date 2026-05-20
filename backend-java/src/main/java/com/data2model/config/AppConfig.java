@@ -4,6 +4,7 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestTemplate;
 
 @Configuration
@@ -11,7 +12,13 @@ public class AppConfig {
 
     @Bean
     public RestTemplate restTemplate() {
-        return new RestTemplate();
+        // Buffer request body so RestTemplate sends Content-Length instead of
+        // chunked transfer encoding — gunicorn sync workers choke on chunked uploads.
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setBufferRequestBody(true);
+        factory.setConnectTimeout(10_000);
+        factory.setReadTimeout(120_000); // 2 min for large file uploads to Python
+        return new RestTemplate(factory);
     }
 
     @Bean
