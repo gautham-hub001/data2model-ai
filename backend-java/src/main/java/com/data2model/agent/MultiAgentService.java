@@ -74,6 +74,11 @@ public class MultiAgentService {
 
     private void runWorkflow(String sessionId, String datasetId) {
         try {
+            // Give the browser 3 seconds to establish the STOMP subscription before
+            // we start emitting — prevents early messages being missed due to the
+            // WebSocket handshake happening after the workflow thread starts.
+            Thread.sleep(3_000);
+
             // Step 1: Data Analysis (tool call to Python)
             emit(sessionId, StreamChunk.stepStart("ANALYSIS"));
             AnalysisResult analysis = runAnalysisStep(sessionId, datasetId);

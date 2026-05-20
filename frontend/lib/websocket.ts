@@ -15,7 +15,7 @@ export function createSessionClient(
 ): Client {
   const client = new Client({
     brokerURL: WS_URL,
-    reconnectDelay: 3000,
+    reconnectDelay: 5000,
     onConnect: () => {
       onConnected?.();
       client.subscribe(`/topic/session/${sessionId}/stream`, (msg: IMessage) => {
@@ -29,7 +29,14 @@ export function createSessionClient(
     },
     onStompError: (frame) => {
       console.error("STOMP error", frame);
-      onChunk({ type: "error", content: "WebSocket connection failed." });
+      onChunk({ type: "error", content: `WebSocket STOMP error: ${frame.headers?.message ?? "unknown"}` });
+    },
+    onWebSocketError: (event) => {
+      console.error("WebSocket error", event);
+      onChunk({ type: "error", content: `WebSocket failed to connect. Check that NEXT_PUBLIC_WS_URL is set correctly (currently: ${WS_URL})` });
+    },
+    onDisconnect: () => {
+      console.warn("STOMP disconnected from", WS_URL);
     },
   });
 

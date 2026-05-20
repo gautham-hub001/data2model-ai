@@ -20,8 +20,10 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
+        // Raw WebSocket endpoint — no SockJS wrapper.
+        // SockJS uses its own framing protocol which breaks @stomp/stompjs when the
+        // client connects via brokerURL (native WebSocket mode).
         registry.addEndpoint("/ws")
-                .setAllowedOriginPatterns("*")
-                .withSockJS(); // fallback for browsers that don't support WebSocket natively
+                .setAllowedOriginPatterns("*");
     }
 }
