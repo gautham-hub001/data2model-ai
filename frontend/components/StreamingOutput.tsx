@@ -2,8 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createSessionClient, StreamChunk } from "@/lib/websocket";
-import { confirmSmote } from "@/lib/api";
-import { Check, Copy, AlertCircle } from "lucide-react";
 
 interface StreamingOutputProps {
   sessionId: string;
@@ -13,15 +11,16 @@ interface StreamingOutputProps {
 type Step = {
   name: string;
   label: string;
+  sublabel: string;
   content: string;
   done: boolean;
 };
 
-const STEP_LABELS: Record<string, string> = {
-  ANALYSIS:        "Dataset Analysis",
-  RECOMMENDATION:  "Model Recommendation",
-  CLARIFICATION:   "Clarification",
-  CODE_GENERATION: "Code Generation",
+const STEP_META: Record<string, { label: string; sublabel: string }> = {
+  ANALYSIS:        { label: "Dataset Analysis",      sublabel: "Inspecting shape, types & distributions" },
+  RECOMMENDATION:  { label: "Model Recommendation",  sublabel: "Selecting the optimal algorithm" },
+  CLARIFICATION:   { label: "Clarification",         sublabel: "Checking for class imbalance" },
+  CODE_GENERATION: { label: "Code Generation",       sublabel: "Writing production-ready scikit-learn" },
 };
 
 const STEP_ORDER = ["ANALYSIS", "RECOMMENDATION", "CLARIFICATION", "CODE_GENERATION"];
@@ -30,36 +29,92 @@ function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <button
-      onClick={() => {
+      onClick={(e) => {
+        e.stopPropagation();
         navigator.clipboard.writeText(text).then(() => {
           setCopied(true);
           setTimeout(() => setCopied(false), 2000);
         });
       }}
-      className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium
-                 bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white
-                 border border-white/10 transition-all"
+      style={{
+        display: "flex", alignItems: "center", gap: "6px",
+        padding: "5px 10px",
+        borderRadius: "6px",
+        border: `1px solid ${copied ? "var(--emerald-20)" : "var(--border)"}`,
+        background: copied ? "var(--emerald-10)" : "var(--bg-raised)",
+        color: copied ? "var(--emerald)" : "var(--text-3)",
+        fontSize: "11px",
+        fontFamily: "var(--font-mono)",
+        cursor: "pointer",
+        transition: "all 0.2s ease",
+        flexShrink: 0,
+      }}
     >
-      {copied
-        ? <><Check className="h-3 w-3 text-emerald-400" /> Copied</>
-        : <><Copy className="h-3 w-3" /> Copy code</>}
+      {copied ? (
+        <>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+          copied
+        </>
+      ) : (
+        <>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+          </svg>
+          copy
+        </>
+      )}
     </button>
   );
 }
 
-function StatusDot({ done, active }: { done: boolean; active: boolean }) {
-  if (done) return (
-    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/15 ring-1 ring-emerald-500/40">
-      <Check className="h-3 w-3 text-emerald-400" />
-    </span>
+function StepIndicator({ index, done, active }: { index: number; done: boolean; active: boolean }) {
+  if (done) {
+    return (
+      <div style={{
+        width: 28, height: 28, borderRadius: "50%",
+        background: "var(--emerald-10)",
+        border: "1px solid var(--emerald-20)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        flexShrink: 0,
+      }}>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--emerald)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="20 6 9 17 4 12" />
+        </svg>
+      </div>
+    );
+  }
+  if (active) {
+    return (
+      <div style={{ position: "relative", width: 28, height: 28, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div className="animate-ping-amber" style={{
+          position: "absolute",
+          width: 12, height: 12,
+          borderRadius: "50%",
+          background: "var(--amber-20)",
+        }} />
+        <div style={{
+          width: 10, height: 10, borderRadius: "50%",
+          background: "var(--amber)",
+          boxShadow: "0 0 8px 1px var(--amber-40)",
+        }} />
+      </div>
+    );
+  }
+  return (
+    <div style={{
+      width: 28, height: 28, borderRadius: "50%",
+      border: "1px solid var(--border)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      flexShrink: 0,
+    }}>
+      <span style={{ fontSize: "10px", fontFamily: "var(--font-mono)", color: "var(--text-4)" }}>
+        {String(index + 1).padStart(2, "0")}
+      </span>
+    </div>
   );
-  if (active) return (
-    <span className="relative flex h-5 w-5 items-center justify-center">
-      <span className="animate-ping absolute inline-flex h-3 w-3 rounded-full bg-violet-400 opacity-40" />
-      <span className="relative inline-flex h-2 w-2 rounded-full bg-violet-400" />
-    </span>
-  );
-  return <span className="h-2 w-2 rounded-full bg-gray-700 mx-1.5" />;
 }
 
 export default function StreamingOutput({ sessionId, token }: StreamingOutputProps) {
@@ -90,9 +145,10 @@ export default function StreamingOutput({ sessionId, token }: StreamingOutputPro
       if (prev) setSteps((p) => ({ ...p, [prev]: { ...p[prev], done: true } }));
       currentStepRef.current = chunk.step;
       setCurrentStep(chunk.step);
+      const meta = STEP_META[chunk.step] ?? { label: chunk.step, sublabel: "" };
       setSteps((p) => ({
         ...p,
-        [chunk.step!]: { name: chunk.step!, label: STEP_LABELS[chunk.step!] ?? chunk.step!, content: "", done: false },
+        [chunk.step!]: { name: chunk.step!, ...meta, content: "", done: false },
       }));
       if (chunk.step === "CLARIFICATION") setAwaitingSmote(true);
     } else if (chunk.type === "token" && currentStepRef.current) {
@@ -109,86 +165,212 @@ export default function StreamingOutput({ sessionId, token }: StreamingOutputPro
 
   if (error) {
     return (
-      <div className="flex items-start gap-3 rounded-xl bg-red-500/5 border border-red-500/20 p-4 text-red-400">
-        <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
-        <span className="text-sm leading-relaxed">{error}</span>
+      <div className="animate-appear" style={{
+        display: "flex", alignItems: "flex-start", gap: "12px",
+        padding: "16px 20px",
+        borderRadius: "10px",
+        border: "1px solid var(--red-20)",
+        background: "var(--red-10)",
+        color: "var(--red)",
+        fontSize: "13px",
+        lineHeight: 1.6,
+      }}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 2 }}>
+          <circle cx="12" cy="12" r="10" />
+          <line x1="12" y1="8" x2="12" y2="12" />
+          <line x1="12" y1="16" x2="12.01" y2="16" />
+        </svg>
+        {error}
       </div>
     );
   }
 
-  // Show steps in fixed order, only ones we've received
   const visibleSteps = STEP_ORDER.filter((s) => steps[s]).map((s) => steps[s]);
+  const globalIndex = (name: string) => STEP_ORDER.indexOf(name);
 
   return (
-    <div className="space-y-3">
-      {visibleSteps.map((step, i) => {
+    <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+      {visibleSteps.map((step) => {
+        const idx = globalIndex(step.name);
         const isActive = step.name === currentStep && !step.done;
         const isCode = step.name === "CODE_GENERATION";
 
         return (
           <div
             key={step.name}
-            className={`rounded-2xl border transition-all duration-300 overflow-hidden
-              ${step.done
-                ? "border-white/8 bg-white/[0.02]"
-                : isActive
-                  ? "border-violet-500/30 bg-violet-500/[0.04] shadow-[0_0_24px_-8px_rgba(139,92,246,0.3)]"
-                  : "border-white/5 bg-white/[0.01]"
-              }`}
+            className={`animate-appear ${isActive ? "step-active-scanline animate-pulse-shadow" : ""}`}
+            style={{
+              borderRadius: "10px",
+              border: `1px solid ${
+                isActive ? "var(--amber-20)"
+                : step.done ? "var(--border-light)"
+                : "var(--border-light)"
+              }`,
+              background: isActive ? "var(--amber-50)" : "var(--bg-surface)",
+              overflow: "hidden",
+              transition: "border-color 0.3s ease, background 0.3s ease",
+              position: "relative",
+            }}
           >
+            {/* Amber left accent bar on active */}
+            {isActive && (
+              <div style={{
+                position: "absolute", left: 0, top: 0, bottom: 0,
+                width: "2px",
+                background: "var(--amber)",
+                borderRadius: "10px 0 0 10px",
+              }} />
+            )}
+
+            {/* Large decorative step number */}
+            <div style={{
+              position: "absolute", right: 16, top: "50%",
+              transform: "translateY(-50%)",
+              fontSize: "80px", fontWeight: 700,
+              fontFamily: "var(--font-display)",
+              color: step.done ? "rgba(255,255,255,0.025)" : isActive ? "var(--amber-10)" : "rgba(255,255,255,0.018)",
+              lineHeight: 1,
+              pointerEvents: "none",
+              userSelect: "none",
+              transition: "color 0.3s ease",
+            }}>
+              {String(idx + 1).padStart(2, "0")}
+            </div>
+
             {/* Header */}
-            <div className="flex items-center gap-3 px-5 py-3.5">
-              <StatusDot done={step.done} active={isActive} />
-              <div className="flex items-center gap-2 flex-1 min-w-0">
-                <span className="text-xs font-medium text-gray-600 tabular-nums">
-                  {String(i + 1).padStart(2, "0")}
-                </span>
-                <span className={`text-sm font-medium truncate ${
-                  step.done ? "text-gray-300" : isActive ? "text-white" : "text-gray-500"
-                }`}>
+            <div style={{
+              display: "flex", alignItems: "center", gap: "12px",
+              padding: "14px 20px",
+              position: "relative",
+            }}>
+              <StepIndicator index={idx} done={step.done} active={isActive} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{
+                  fontSize: "13px",
+                  fontWeight: 500,
+                  color: isActive ? "var(--text)" : step.done ? "var(--text-2)" : "var(--text-3)",
+                  transition: "color 0.3s ease",
+                  letterSpacing: "0.01em",
+                }}>
                   {step.label}
-                </span>
+                </p>
+                {isActive && (
+                  <p className="animate-fade-in" style={{ fontSize: "11px", color: "var(--amber)", marginTop: "2px", fontFamily: "var(--font-mono)" }}>
+                    processing…
+                  </p>
+                )}
+                {step.done && (
+                  <p className="animate-fade-in" style={{ fontSize: "11px", color: "var(--text-3)", marginTop: "2px" }}>
+                    {step.sublabel}
+                  </p>
+                )}
               </div>
               {isCode && step.content && <CopyButton text={step.content} />}
             </div>
 
             {/* Content */}
             {step.content && (
-              <div className={`border-t ${isActive ? "border-violet-500/20" : "border-white/5"}`}>
+              <div style={{
+                borderTop: `1px solid ${isActive ? "var(--amber-10)" : "var(--border-light)"}`,
+                transition: "border-color 0.3s ease",
+              }}>
                 {isCode ? (
-                  <div>
+                  <>
                     {/* Terminal chrome */}
-                    <div className="flex items-center gap-1.5 px-4 py-2.5 bg-black/40">
-                      <span className="h-2.5 w-2.5 rounded-full bg-red-500/60" />
-                      <span className="h-2.5 w-2.5 rounded-full bg-yellow-500/60" />
-                      <span className="h-2.5 w-2.5 rounded-full bg-emerald-500/60" />
-                      <span className="ml-2 text-xs text-gray-600 font-mono">pipeline.py</span>
+                    <div style={{
+                      display: "flex", alignItems: "center", gap: "6px",
+                      padding: "8px 16px",
+                      background: "rgba(0,0,0,0.3)",
+                      borderBottom: "1px solid var(--border-light)",
+                    }}>
+                      <span style={{ width: 9, height: 9, borderRadius: "50%", background: "rgba(248,113,113,0.5)" }} />
+                      <span style={{ width: 9, height: 9, borderRadius: "50%", background: "rgba(251,191,36,0.5)" }} />
+                      <span style={{ width: 9, height: 9, borderRadius: "50%", background: "rgba(52,211,153,0.5)" }} />
+                      <span style={{ marginLeft: 8, fontSize: "11px", color: "var(--text-3)", fontFamily: "var(--font-mono)" }}>
+                        pipeline.py
+                      </span>
                     </div>
-                    <pre className="px-5 py-4 text-[13px] text-emerald-300/90 font-mono
-                                   whitespace-pre-wrap overflow-x-auto leading-relaxed bg-black/30">
+                    <pre style={{
+                      padding: "20px",
+                      fontSize: "12.5px",
+                      fontFamily: "var(--font-mono)",
+                      color: "var(--cyan)",
+                      whiteSpace: "pre-wrap",
+                      overflowX: "auto",
+                      lineHeight: 1.7,
+                      background: "rgba(0,0,0,0.2)",
+                      margin: 0,
+                    }}>
                       <code>{step.content}</code>
                     </pre>
-                  </div>
+                  </>
                 ) : (
-                  <p className="px-5 py-4 text-sm text-gray-300 whitespace-pre-wrap leading-relaxed">
+                  <p style={{
+                    padding: "16px 20px",
+                    fontSize: "13px",
+                    color: "var(--text-2)",
+                    lineHeight: 1.75,
+                    whiteSpace: "pre-wrap",
+                  }}>
                     {step.content}
                   </p>
                 )}
               </div>
             )}
 
-            {/* SMOTE clarification buttons */}
+            {/* SMOTE clarification */}
             {step.name === "CLARIFICATION" && awaitingSmote && (
-              <div className={`px-5 pb-5 flex gap-3 border-t ${isActive ? "border-violet-500/20" : "border-white/5"} pt-4`}>
+              <div style={{
+                display: "flex", gap: "10px",
+                padding: "14px 20px",
+                borderTop: "1px solid var(--border-light)",
+              }}>
                 <button
-                  onClick={async () => { setAwaitingSmote(false); await import("@/lib/api").then(m => m.confirmSmote(sessionId, true, token)); }}
-                  className="px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-sm font-medium transition-colors"
+                  onClick={async () => {
+                    setAwaitingSmote(false);
+                    await import("@/lib/api").then((m) => m.confirmSmote(sessionId, true, token));
+                  }}
+                  style={{
+                    padding: "8px 18px",
+                    borderRadius: "7px",
+                    border: "1px solid var(--amber-40)",
+                    background: "var(--amber-10)",
+                    color: "var(--amber)",
+                    fontSize: "13px",
+                    fontWeight: 500,
+                    cursor: "pointer",
+                    transition: "all 0.2s ease",
+                  }}
+                  onMouseEnter={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.background = "var(--amber-20)";
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.background = "var(--amber-10)";
+                  }}
                 >
                   Apply SMOTE
                 </button>
                 <button
-                  onClick={async () => { setAwaitingSmote(false); await import("@/lib/api").then(m => m.confirmSmote(sessionId, false, token)); }}
-                  className="px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-sm font-medium text-gray-300 transition-colors"
+                  onClick={async () => {
+                    setAwaitingSmote(false);
+                    await import("@/lib/api").then((m) => m.confirmSmote(sessionId, false, token));
+                  }}
+                  style={{
+                    padding: "8px 18px",
+                    borderRadius: "7px",
+                    border: "1px solid var(--border)",
+                    background: "var(--bg-raised)",
+                    color: "var(--text-2)",
+                    fontSize: "13px",
+                    cursor: "pointer",
+                    transition: "all 0.2s ease",
+                  }}
+                  onMouseEnter={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--text-3)";
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--border)";
+                  }}
                 >
                   Skip
                 </button>
@@ -199,9 +381,28 @@ export default function StreamingOutput({ sessionId, token }: StreamingOutputPro
       })}
 
       {done && (
-        <div className="flex items-center gap-2.5 rounded-xl bg-emerald-500/5 border border-emerald-500/20 px-5 py-3.5 text-emerald-400">
-          <Check className="h-4 w-4 shrink-0" />
-          <span className="text-sm font-medium">Analysis complete</span>
+        <div className="animate-appear" style={{
+          display: "flex", alignItems: "center", gap: "12px",
+          padding: "14px 20px",
+          borderRadius: "10px",
+          border: "1px solid var(--emerald-20)",
+          background: "var(--emerald-10)",
+        }}>
+          <div style={{
+            width: 28, height: 28, borderRadius: "50%",
+            border: "1px solid var(--emerald-20)",
+            background: "var(--emerald-10)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            flexShrink: 0,
+          }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--emerald)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          </div>
+          <div>
+            <p style={{ fontSize: "13px", fontWeight: 500, color: "var(--emerald)" }}>Analysis complete</p>
+            <p style={{ fontSize: "11px", color: "var(--text-3)", marginTop: "2px" }}>Your scikit-learn pipeline is ready to use</p>
+          </div>
         </div>
       )}
 

@@ -1,26 +1,178 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg:              #0b0a09;
+  --bg-surface:      #131110;
+  --bg-raised:       #1a1815;
+  --border:          #252018;
+  --border-light:    #1c1914;
+
+  --amber:           #f5a623;
+  --amber-50:        rgba(245, 166, 35, 0.05);
+  --amber-10:        rgba(245, 166, 35, 0.10);
+  --amber-20:        rgba(245, 166, 35, 0.20);
+  --amber-40:        rgba(245, 166, 35, 0.40);
+  --amber-glow:      0 0 40px -8px rgba(245, 166, 35, 0.35);
+
+  --cyan:            #22d3ee;
+  --cyan-10:         rgba(34, 211, 238, 0.08);
+  --cyan-20:         rgba(34, 211, 238, 0.18);
+
+  --emerald:         #34d399;
+  --emerald-10:      rgba(52, 211, 153, 0.07);
+  --emerald-20:      rgba(52, 211, 153, 0.18);
+
+  --red:             #f87171;
+  --red-10:          rgba(248, 113, 113, 0.06);
+  --red-20:          rgba(248, 113, 113, 0.18);
+
+  --text:            #ede9e1;
+  --text-2:          #a09488;
+  --text-3:          #6b6054;
+  --text-4:          #38322c;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-bg:          var(--bg);
+  --color-surface:     var(--bg-surface);
+  --color-raised:      var(--bg-raised);
+  --color-border:      var(--border);
+  --color-amber:       var(--amber);
+  --color-cyan:        var(--cyan);
+  --color-emerald:     var(--emerald);
+  --color-text:        var(--text);
+  --color-text-2:      var(--text-2);
+  --color-text-3:      var(--text-3);
+  --font-display:      var(--font-display);
+  --font-sans:         var(--font-sans);
+  --font-mono:         var(--font-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+* { box-sizing: border-box; }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans), system-ui, sans-serif;
+}
+
+::selection {
+  background: var(--amber-20);
+  color: var(--amber);
+}
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-4); }
+
+/* ── Keyframes ─────────────────────────────────────────── */
+
+@keyframes appear {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes appear-left {
+  from { opacity: 0; transform: translateX(-6px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes ping-amber {
+  0%        { transform: scale(1);   opacity: 0.8; }
+  75%, 100% { transform: scale(2.2); opacity: 0; }
+}
+
+@keyframes pulse-amber-shadow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 166, 35, 0); }
+  50%       { box-shadow: var(--amber-glow); }
+}
+
+@keyframes scanline {
+  0%   { top: -2px; opacity: 0; }
+  5%   { opacity: 1; }
+  95%  { opacity: 0.6; }
+  100% { top: 100%; opacity: 0; }
+}
+
+@keyframes bracket-grow {
+  from { width: 10px; height: 10px; opacity: 0.4; }
+  to   { width: 18px; height: 18px; opacity: 1; }
+}
+
+/* ── Utility classes ────────────────────────────────────── */
+
+.animate-appear        { animation: appear 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.animate-appear-left   { animation: appear-left 0.3s ease forwards; }
+.animate-fade-in       { animation: fade-in 0.3s ease forwards; }
+.animate-ping-amber    { animation: ping-amber 1.5s ease-out infinite; }
+.animate-pulse-shadow  { animation: pulse-amber-shadow 2.5s ease-in-out infinite; }
+
+/* ── Upload zone corner brackets ────────────────────────── */
+
+.upload-zone {
+  position: relative;
+}
+
+.upload-zone::before,
+.upload-zone::after,
+.upload-zone .corner-tr::before,
+.upload-zone .corner-bl::before {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-color: var(--text-3);
+  border-style: solid;
+  transition: width 0.25s ease, height 0.25s ease, border-color 0.25s ease;
+}
+
+.upload-zone::before {
+  top: 14px; left: 14px;
+  border-width: 1.5px 0 0 1.5px;
+}
+.upload-zone::after {
+  bottom: 14px; right: 14px;
+  border-width: 0 1.5px 1.5px 0;
+}
+.upload-zone .corner-tr::before {
+  top: 14px; right: 14px;
+  border-width: 1.5px 1.5px 0 0;
+}
+.upload-zone .corner-bl::before {
+  bottom: 14px; left: 14px;
+  border-width: 0 0 1.5px 1.5px;
+}
+
+.upload-zone:hover::before,
+.upload-zone:hover::after,
+.upload-zone:hover .corner-tr::before,
+.upload-zone:hover .corner-bl::before,
+.upload-zone.dragging::before,
+.upload-zone.dragging::after,
+.upload-zone.dragging .corner-tr::before,
+.upload-zone.dragging .corner-bl::before {
+  width: 22px;
+  height: 22px;
+  border-color: var(--amber);
+}
+
+/* ── Active step scanline ───────────────────────────────── */
+
+.step-active-scanline {
+  position: relative;
+  overflow: hidden;
+}
+.step-active-scanline::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--amber-40), transparent);
+  animation: scanline 2.5s linear infinite;
 }
