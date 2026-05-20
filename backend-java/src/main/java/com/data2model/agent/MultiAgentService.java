@@ -132,12 +132,15 @@ public class MultiAgentService {
         // Use tool call so the LLM can invoke runAnalysis if needed; here we call directly
         // for a deterministic first step (no hallucination risk).
         AnalysisResult result = mlPipelineTool.runAnalysis(datasetId);
-        // Row/col counts live under analysis.meta.num_rows / num_cols
-        @SuppressWarnings("unchecked")
-        java.util.Map<String, Object> meta =
-            (java.util.Map<String, Object>) result.analysis().getOrDefault("meta", java.util.Map.of());
-        String rows = String.valueOf(meta.getOrDefault("num_rows", "?"));
-        String cols = String.valueOf(meta.getOrDefault("num_cols", "?"));
+        // Row/col counts live under analysis → meta → num_rows / num_cols
+        String rows = "?";
+        String cols = "?";
+        Object metaRaw = result.analysis().get("meta");
+        log.debug("analysis keys: {}", result.analysis().keySet());
+        if (metaRaw instanceof java.util.Map<?, ?> meta) {
+            if (meta.get("num_rows") != null) rows = String.valueOf(meta.get("num_rows"));
+            if (meta.get("num_cols")  != null) cols = String.valueOf(meta.get("num_cols"));
+        }
         emit(sessionId, StreamChunk.token("✓ Analyzed " + rows + " rows × " + cols + " columns.\n"));
         return result;
     }
