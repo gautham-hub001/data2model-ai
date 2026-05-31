@@ -1,0 +1,25 @@
+name: Deploy Python Backend (Render)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend-python/**"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Lint
+        working-directory: backend-python
+        run: pip install flake8 && flake8 app.py analyzer.py recommender.py llm.py --max-line-length=120
+
+      - name: Trigger Render redeploy
+        run: |
+          curl -X POST "${{ secrets.RENDER_PYTHON_DEPLOY_HOOK }}"

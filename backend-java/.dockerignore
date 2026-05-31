@@ -1,0 +1,5 @@
+target/
+.git/
+*.md
+.env
+application-local.yml
