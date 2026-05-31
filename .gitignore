@@ -1,0 +1,5 @@
+# Knowledge graph (local only, regenerate with: graphify update .)
+graphify-out/
+
+# macOS
+.DS_Store
