@@ -43,7 +43,7 @@ function timeAgo(ts: number): string {
 export default function Home() {
   const { getToken } = useAuth();
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [token, setToken] = useState<string>("");
+
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
@@ -62,7 +62,6 @@ export default function Home() {
     try {
       const jwt = await getToken();
       if (!jwt) throw new Error("Not authenticated");
-      setToken(jwt);
       const session = await uploadDataset(file, jwt);
       setSessionId(session.sessionId);
 
@@ -274,7 +273,7 @@ export default function Home() {
                 {sessionId.slice(0, 8)}…
               </span>
             </div>
-            <StreamingOutput sessionId={sessionId} token={token} />
+            <StreamingOutput sessionId={sessionId} />
           </div>
         )}
 

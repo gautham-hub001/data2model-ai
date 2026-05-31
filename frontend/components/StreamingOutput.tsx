@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useAuth } from "@clerk/nextjs";
 import { createSessionClient, StreamChunk } from "@/lib/websocket";
 
 interface StreamingOutputProps {
   sessionId: string;
-  token: string;
 }
 
 type Step = {
@@ -117,7 +117,8 @@ function StepIndicator({ index, done, active }: { index: number; done: boolean; 
   );
 }
 
-export default function StreamingOutput({ sessionId, token }: StreamingOutputProps) {
+export default function StreamingOutput({ sessionId }: StreamingOutputProps) {
+  const { getToken } = useAuth();
   const [steps, setSteps] = useState<Record<string, Step>>({});
   const [currentStep, setCurrentStep] = useState<string | null>(null);
   const [done, setDone] = useState(false);
@@ -328,7 +329,8 @@ export default function StreamingOutput({ sessionId, token }: StreamingOutputPro
                 <button
                   onClick={async () => {
                     setAwaitingSmote(false);
-                    await import("@/lib/api").then((m) => m.confirmSmote(sessionId, true, token));
+                    const t = await getToken();
+                    await import("@/lib/api").then((m) => m.confirmSmote(sessionId, true, t ?? ""));
                   }}
                   style={{
                     padding: "8px 18px",
@@ -353,7 +355,8 @@ export default function StreamingOutput({ sessionId, token }: StreamingOutputPro
                 <button
                   onClick={async () => {
                     setAwaitingSmote(false);
-                    await import("@/lib/api").then((m) => m.confirmSmote(sessionId, false, token));
+                    const t = await getToken();
+                    await import("@/lib/api").then((m) => m.confirmSmote(sessionId, false, t ?? ""));
                   }}
                   style={{
                     padding: "8px 18px",
