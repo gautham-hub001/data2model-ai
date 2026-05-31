@@ -16,7 +16,6 @@ import reactor.core.publisher.Flux;
 
 import java.time.Duration;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.*;
 import java.util.function.Supplier;
@@ -33,10 +32,12 @@ public class MultiAgentService {
     private final long streamTimeoutSeconds;
     private final long stompReadyDelayMs;
 
+    private static final long WORKFLOW_LOCK_EXPIRY_MS = 15 * 60 * 1000; // 15 minutes
+
     private final Map<String, SessionState> sessions = new ConcurrentHashMap<>();
     private final Map<String, CompletableFuture<Boolean>> smoteDecisions = new ConcurrentHashMap<>();
-    // Tracks users with an in-flight workflow — prevents concurrent submissions
-    private final Set<String> activeUsers = ConcurrentHashMap.newKeySet();
+    // userId → workflow start time; acts as the concurrency lock
+    private final Map<String, Long> activeUsers = new ConcurrentHashMap<>();
 
     public MultiAgentService(
         ChatClient.Builder chatClientBuilder,
@@ -55,7 +56,14 @@ public class MultiAgentService {
     }
 
     public boolean isUserActive(String userId) {
-        return activeUsers.contains(userId);
+        Long startTime = activeUsers.get(userId);
+        if (startTime == null) return false;
+        // Treat the lock as expired if the workflow has been running longer than the max expected duration
+        if (System.currentTimeMillis() - startTime > WORKFLOW_LOCK_EXPIRY_MS) {
+            activeUsers.remove(userId);
+            return false;
+        }
+        return true;
     }
 
     /**
@@ -69,13 +77,13 @@ public class MultiAgentService {
             null, null, null, false
         );
         sessions.put(sessionId, initial);
-        activeUsers.add(userId);
+        activeUsers.put(userId, System.currentTimeMillis());
 
         CompletableFuture.runAsync(() -> {
             try {
                 runWorkflow(sessionId, datasetId);
             } finally {
-                activeUsers.remove(userId);
+                activeUsers.remove(userId);  // always release the lock when done or failed
             }
         });
 
