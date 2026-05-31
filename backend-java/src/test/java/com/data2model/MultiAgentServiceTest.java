@@ -1,8 +1,8 @@
 package com.data2model;
 
 import com.data2model.agent.MultiAgentService;
+import com.data2model.agent.SupabaseSessionRepository;
 import com.data2model.model.AnalysisResult;
-import com.data2model.model.SessionState;
 import com.data2model.tool.MLPipelineTool;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.client.ChatClient;
@@ -21,6 +21,7 @@ class MultiAgentServiceTest {
     void startWorkflow_returnsSessionId() {
         MLPipelineTool tool = mock(MLPipelineTool.class);
         SimpMessagingTemplate ws = mock(SimpMessagingTemplate.class);
+        SupabaseSessionRepository repo = mock(SupabaseSessionRepository.class);
         ChatClient.Builder builder = mock(ChatClient.Builder.class, RETURNS_DEEP_STUBS);
 
         AnalysisResult fakeAnalysis = new AnalysisResult(
@@ -34,13 +35,12 @@ class MultiAgentServiceTest {
 
         when(tool.runAnalysis(anyString())).thenReturn(fakeAnalysis);
 
-        // Mock streaming responses
         when(builder.defaultTools((Object[]) any()).build()
             .prompt().user(any(java.util.function.Consumer.class))
             .stream().content()
         ).thenReturn(Flux.just("mocked token"));
 
-        MultiAgentService service = new MultiAgentService(builder, tool, ws);
+        MultiAgentService service = new MultiAgentService(builder, tool, ws, repo, 120L, 0L);
         String sessionId = service.startWorkflow("dataset-123", "test.csv", "user-1");
 
         assertThat(sessionId).isNotNull().isNotBlank();
