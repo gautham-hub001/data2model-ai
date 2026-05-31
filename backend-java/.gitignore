@@ -4,3 +4,5 @@ target/
 *.jar
 .env
 application-local.yml
+#graphify
+graphify-out
