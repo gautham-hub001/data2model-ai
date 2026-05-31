@@ -1,26 +1,22 @@
 import pandas as pd
 
+
 def analyze_dataset(df):
     analysis = {}
 
-    # Column types
     analysis["columns"] = {col: str(dtype) for col, dtype in df.dtypes.items()}
-
-    # Missing values
     analysis["missing_values"] = df.isnull().sum().to_dict()
-
-    # Basic stats
     analysis["describe"] = df.describe(include='all').fillna("").to_dict()
 
-    # Correlation (numeric only)
     try:
         corr = df.corr(numeric_only=True)
         analysis["correlation"] = corr.to_dict()
-    except:
+    except Exception:
         analysis["correlation"] = {}
 
     analysis["meta"] = extract_meta_features(df)
     return analysis
+
 
 def extract_meta_features(df):
     return {
@@ -28,12 +24,15 @@ def extract_meta_features(df):
         "num_cols": df.shape[1],
         "num_numeric": len(df.select_dtypes(include=["int64", "float64"]).columns),
         "num_categorical": len(df.select_dtypes(include=["object"]).columns),
-        "has_missing": df.isnull().sum().sum() > 0
+        "has_missing": df.isnull().sum().sum() > 0,
     }
 
-def clean_dataset(df):
-    # Convert TotalCharges to numeric if present
-    if "TotalCharges" in df.columns:
-        df["TotalCharges"] = pd.to_numeric(df["TotalCharges"], errors="coerce")
 
+def clean_dataset(df):
+    # Coerce any column that looks numeric but was read as object (e.g. contains spaces or empty strings)
+    for col in df.select_dtypes(include=["object"]).columns:
+        converted = pd.to_numeric(df[col], errors="coerce")
+        if converted.notna().sum() > df[col].notna().sum() * 0.5:
+            df = df.copy()
+            df[col] = converted
     return df

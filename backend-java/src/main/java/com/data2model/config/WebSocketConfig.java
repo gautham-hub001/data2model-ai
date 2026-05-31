@@ -1,5 +1,6 @@
 package com.data2model.config;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
@@ -10,11 +11,12 @@ import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerCo
 @EnableWebSocketMessageBroker
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
+    @Value("${app.allowed-origins}")
+    private String allowedOrigins;
+
     @Override
     public void configureMessageBroker(MessageBrokerRegistry registry) {
-        // In-memory broker for /topic destinations (server → client)
         registry.enableSimpleBroker("/topic");
-        // Prefix for messages client sends to server
         registry.setApplicationDestinationPrefixes("/app");
     }
 
@@ -24,6 +26,6 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         // SockJS uses its own framing protocol which breaks @stomp/stompjs when the
         // client connects via brokerURL (native WebSocket mode).
         registry.addEndpoint("/ws")
-                .setAllowedOriginPatterns("*");
+                .setAllowedOriginPatterns(allowedOrigins.split(","));
     }
 }

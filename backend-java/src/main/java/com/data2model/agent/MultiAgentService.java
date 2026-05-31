@@ -8,17 +8,18 @@ import com.data2model.tool.MLPipelineTool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
 import reactor.core.publisher.Flux;
 
 import java.time.Duration;
-import java.util.function.Supplier;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.*;
+import java.util.function.Supplier;
 
 @Service
 public class MultiAgentService {
@@ -28,22 +29,33 @@ public class MultiAgentService {
     private final ChatClient chatClient;
     private final MLPipelineTool mlPipelineTool;
     private final SimpMessagingTemplate ws;
+    private final SupabaseSessionRepository sessionRepository;
+    private final long streamTimeoutSeconds;
+    private final long stompReadyDelayMs;
 
-    // In-memory session store. Replace with Supabase persistence for production.
     private final Map<String, SessionState> sessions = new ConcurrentHashMap<>();
-    // Signals whether user confirmed SMOTE (null = waiting, true/false = decided)
-    private final Map<String, Boolean> smoteDecisions = new ConcurrentHashMap<>();
+    private final Map<String, CompletableFuture<Boolean>> smoteDecisions = new ConcurrentHashMap<>();
+    // Tracks users with an in-flight workflow — prevents concurrent submissions
+    private final Set<String> activeUsers = ConcurrentHashMap.newKeySet();
 
     public MultiAgentService(
         ChatClient.Builder chatClientBuilder,
         MLPipelineTool mlPipelineTool,
-        SimpMessagingTemplate ws
+        SimpMessagingTemplate ws,
+        SupabaseSessionRepository sessionRepository,
+        @Value("${app.workflow.stream-timeout-seconds:120}") long streamTimeoutSeconds,
+        @Value("${app.workflow.stomp-ready-delay-ms:1000}") long stompReadyDelayMs
     ) {
-        this.chatClient = chatClientBuilder
-            .defaultTools(mlPipelineTool)
-            .build();
+        this.chatClient = chatClientBuilder.defaultTools(mlPipelineTool).build();
         this.mlPipelineTool = mlPipelineTool;
         this.ws = ws;
+        this.sessionRepository = sessionRepository;
+        this.streamTimeoutSeconds = streamTimeoutSeconds;
+        this.stompReadyDelayMs = stompReadyDelayMs;
+    }
+
+    public boolean isUserActive(String userId) {
+        return activeUsers.contains(userId);
     }
 
     /**
@@ -57,13 +69,24 @@ public class MultiAgentService {
             null, null, null, false
         );
         sessions.put(sessionId, initial);
+        activeUsers.add(userId);
 
-        CompletableFuture.runAsync(() -> runWorkflow(sessionId, datasetId));
+        CompletableFuture.runAsync(() -> {
+            try {
+                runWorkflow(sessionId, datasetId);
+            } finally {
+                activeUsers.remove(userId);
+            }
+        });
+
         return sessionId;
     }
 
     public void confirmSmote(String sessionId, boolean apply) {
-        smoteDecisions.put(sessionId, apply);
+        CompletableFuture<Boolean> future = smoteDecisions.get(sessionId);
+        if (future != null) {
+            future.complete(apply);
+        }
     }
 
     public SessionState getSession(String sessionId) {
@@ -74,12 +97,12 @@ public class MultiAgentService {
 
     private void runWorkflow(String sessionId, String datasetId) {
         try {
-            // Give the browser 3 seconds to establish the STOMP subscription before
-            // we start emitting — prevents early messages being missed due to the
-            // WebSocket handshake happening after the workflow thread starts.
-            Thread.sleep(3_000);
+            // Give the browser time to establish the STOMP subscription before
+            // we start emitting. Configurable via STOMP_READY_DELAY_MS env var.
+            // A more robust alternative is a client-driven READY signal over /app.
+            Thread.sleep(stompReadyDelayMs);
 
-            // Step 1: Data Analysis (tool call to Python)
+            // Step 1: Data Analysis (deterministic tool call to Python — no LLM)
             emit(sessionId, StreamChunk.stepStart("ANALYSIS"));
             AnalysisResult analysis = runAnalysisStep(sessionId, datasetId);
 
@@ -104,14 +127,13 @@ public class MultiAgentService {
                 }
             }
 
-            // Pause between LLM calls to stay within OpenRouter free-tier rate limit (~20 RPM)
+            // Pause between LLM calls to stay within free-tier rate limit (~20 RPM)
             Thread.sleep(5_000);
 
             // Step 4: Code Generation (streamed token by token)
             emit(sessionId, StreamChunk.stepStart("CODE_GENERATION"));
             String code = runCodeGenerationStep(sessionId, analysis, recommendation);
 
-            // Mark done
             SessionState finalState = new SessionState(
                 sessionId,
                 sessions.get(sessionId).datasetName(),
@@ -120,6 +142,7 @@ public class MultiAgentService {
                 analysis, recommendation, code, false
             );
             sessions.put(sessionId, finalState);
+            sessionRepository.save(finalState, datasetId);
             emit(sessionId, StreamChunk.done());
 
         } catch (Exception e) {
@@ -129,24 +152,19 @@ public class MultiAgentService {
     }
 
     private AnalysisResult runAnalysisStep(String sessionId, String datasetId) {
-        // Use tool call so the LLM can invoke runAnalysis if needed; here we call directly
-        // for a deterministic first step (no hallucination risk).
         AnalysisResult result = mlPipelineTool.runAnalysis(datasetId);
-        // Row/col counts live under analysis → meta → num_rows / num_cols
         String rows = "?";
         String cols = "?";
         Object metaRaw = result.analysis().get("meta");
-        log.debug("analysis keys: {}", result.analysis().keySet());
-        if (metaRaw instanceof java.util.Map<?, ?> meta) {
+        if (metaRaw instanceof Map<?, ?> meta) {
             if (meta.get("num_rows") != null) rows = String.valueOf(meta.get("num_rows"));
-            if (meta.get("num_cols")  != null) cols = String.valueOf(meta.get("num_cols"));
+            if (meta.get("num_cols") != null) cols = String.valueOf(meta.get("num_cols"));
         }
         emit(sessionId, StreamChunk.token("✓ Analyzed " + rows + " rows × " + cols + " columns.\n"));
         return result;
     }
 
     private String runRecommendationStep(String sessionId, AnalysisResult analysis) {
-        // Supplier ensures each retry attempt builds a brand-new HTTP request
         Supplier<Flux<String>> streamSupplier = () -> chatClient.prompt()
             .user(u -> u.text("""
                 You are an expert ML engineer. Given the following dataset analysis, recommend the best ML model.
@@ -191,14 +209,24 @@ public class MultiAgentService {
         return streamWithRetry(sessionId, streamSupplier);
     }
 
-    /** Blocks until the user responds to the SMOTE clarification (max 5 minutes). */
-    private boolean waitForSmoteDecision(String sessionId) throws InterruptedException {
-        long deadline = System.currentTimeMillis() + 5 * 60 * 1000;
-        while (!smoteDecisions.containsKey(sessionId)) {
-            if (System.currentTimeMillis() > deadline) return false; // timeout → skip SMOTE
-            Thread.sleep(500);
+    /** Suspends the workflow thread until the user responds (max 5 minutes). */
+    private boolean waitForSmoteDecision(String sessionId) {
+        CompletableFuture<Boolean> future = new CompletableFuture<>();
+        smoteDecisions.put(sessionId, future);
+        try {
+            return future.get(5, TimeUnit.MINUTES);
+        } catch (TimeoutException e) {
+            log.info("SMOTE decision timed out for session {} — skipping SMOTE", sessionId);
+            return false;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        } catch (ExecutionException e) {
+            log.error("Error in SMOTE decision for session {}", sessionId, e);
+            return false;
+        } finally {
+            smoteDecisions.remove(sessionId);
         }
-        return smoteDecisions.remove(sessionId);
     }
 
     private void emit(String sessionId, StreamChunk chunk) {
@@ -206,14 +234,13 @@ public class MultiAgentService {
     }
 
     /**
-     * Streams an LLM response with manual retry on 429.
+     * Streams an LLM response with manual retry on 429 (rate limit).
      *
      * Spring AI's MessageAggregator catches 429s internally before Reactor's
-     * retryWhen can see them, so we use a plain try-catch loop instead.
+     * retryWhen can see them, so we use a plain try-catch loop.
      * Each retry calls the supplier to create a brand-new HTTP request.
      */
     private String streamWithRetry(String sessionId, Supplier<Flux<String>> streamSupplier) {
-        // Backoff delays: 30s → 60s → 120s
         long[] backoffMs = {30_000, 60_000, 120_000};
 
         Exception lastEx = null;
@@ -221,8 +248,7 @@ public class MultiAgentService {
             StringBuilder sb = new StringBuilder();
             try {
                 streamSupplier.get()
-                    // Batch up to 20 tokens OR flush every 100 ms — whichever comes first.
-                    // Cuts WebSocket messages from ~400 down to ~20-30 per LLM response.
+                    .timeout(Duration.ofSeconds(streamTimeoutSeconds))
                     .bufferTimeout(20, Duration.ofMillis(100))
                     .doOnNext(batch -> {
                         String chunk = String.join("", batch);
@@ -230,17 +256,17 @@ public class MultiAgentService {
                         emit(sessionId, StreamChunk.token(chunk));
                     })
                     .blockLast();
-                return sb.toString(); // success
+                return sb.toString();
             } catch (Exception e) {
                 lastEx = e;
                 boolean is429 = e.getMessage() != null && e.getMessage().contains("429");
                 if (!is429 || attempt >= backoffMs.length) break;
 
                 long waitMs = backoffMs[attempt];
-                log.warn("OpenRouter 429 on session {}, attempt {}/{}, waiting {}s",
+                log.warn("Rate limited on session {}, attempt {}/{}, waiting {}s",
                     sessionId, attempt + 1, backoffMs.length, waitMs / 1000);
                 emit(sessionId, StreamChunk.token(
-                    "\n⏳ Rate limited by OpenRouter. Retrying in " + (waitMs / 1000) + "s…\n"));
+                    "\n⏳ Rate limited. Retrying in " + (waitMs / 1000) + "s…\n"));
                 try {
                     Thread.sleep(waitMs);
                 } catch (InterruptedException ie) {

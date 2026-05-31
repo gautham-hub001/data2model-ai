@@ -26,6 +26,15 @@ spring:
 app:
   python-api-url: ${PYTHON_API_URL:http://localhost:5001}
   internal-token: ${INTERNAL_TOKEN}
+  allowed-origins: ${ALLOWED_ORIGINS:http://localhost:3000}
+  supabase:
+    url: ${SUPABASE_URL:}
+    service-key: ${SUPABASE_SERVICE_KEY:}
+  rate-limit:
+    requests-per-hour: ${RATE_LIMIT_RPH:3}
+  workflow:
+    stream-timeout-seconds: ${STREAM_TIMEOUT_SECONDS:120}
+    stomp-ready-delay-ms: ${STOMP_READY_DELAY_MS:1000}
 
 # Tune JVM for Render free tier (512MB RAM)
 # Set JAVA_OPTS=-Xmx350m -Xms256m in Render environment
