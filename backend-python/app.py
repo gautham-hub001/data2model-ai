@@ -159,9 +159,10 @@ def _schedule_cleanup():
     timer.start()
 
 
-# Start background cleanup scheduler
-threading.Timer(60, _schedule_cleanup).daemon = True
-threading.Timer(60, _schedule_cleanup).start()
+# Start background cleanup scheduler (60s delay lets the service finish booting first)
+_startup_timer = threading.Timer(60, _schedule_cleanup)
+_startup_timer.daemon = True
+_startup_timer.start()
 
 
 # ── Legacy endpoint (direct file upload, no internal token required) ──────────
